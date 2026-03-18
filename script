@@ -1,0 +1,761 @@
+import pygame
+import socket
+import pickle
+import random
+from enum import Enum
+
+# Initialize Pygame
+pygame.init()
+
+# Constants
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
+FPS = 60
+GRAVITY = 0.5
+GROUND_FRICTION = 0.85
+AIR_FRICTION = 0.98
+MAX_KNOCKBACK = 40
+BLAST_ZONES = {'left': -200, 'right': SCREEN_WIDTH + 200, 'top': -200, 'bottom': SCREEN_HEIGHT + 200}
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 50, 50)
+BLUE = (50, 50, 255)
+GREEN = (50, 255, 50)
+YELLOW = (255, 255, 50)
+PURPLE = (255, 50, 255)
+ORANGE = (255, 150, 50)
+GRAY = (100, 100, 100)
+DARK_GRAY = (30, 30, 30)
+LIGHT_GRAY = (200, 200, 200)
+
+
+class Direction(Enum):
+    LEFT = -1
+    RIGHT = 1
+    NEUTRAL = 0
+
+
+class GameMode(Enum):
+    LOCAL_VS = "local_vs"
+    VS_AI = "vs_ai"
+    ONLINE_HOST = "online_host"
+    ONLINE_JOIN = "online_join"
+
+
+# ==================== CHARACTER SYSTEM ====================
+class CharacterStats:
+    """Simple character stats"""
+
+    def __init__(self, name, color, walk_speed=3.0, air_speed=3.5, jump_force=-12,
+                 double_jump_force=-10, weight=10, jab_damage=3, jab_knockback=5,
+                 tilt_damage=8, tilt_knockback=15, smash_damage=15, smash_knockback=30,
+                 special_damage=12, special_knockback=25):
+        self.name = name
+        self.color = color
+        self.walk_speed = walk_speed
+        self.air_speed = air_speed
+        self.jump_force = jump_force
+        self.double_jump_force = double_jump_force
+        self.weight = weight
+        self.jab_damage = jab_damage
+        self.jab_knockback = jab_knockback
+        self.tilt_damage = tilt_damage
+        self.tilt_knockback = tilt_knockback
+        self.smash_damage = smash_damage
+        self.smash_knockback = smash_knockback
+        self.special_damage = special_damage
+        self.special_knockback = special_knockback
+
+
+# Pre-made characters
+CHARACTERS = [
+    CharacterStats("Mario", RED, 3.0, 3.5, -13, -11, 10, 3, 5, 8, 15, 18, 32, 12, 22),
+    CharacterStats("Link", GREEN, 2.5, 3.0, -11, -10, 12, 4, 7, 10, 18, 20, 35, 15, 28),
+    CharacterStats("Samus", ORANGE, 2.8, 3.2, -10, -9, 11, 3, 6, 9, 16, 17, 30, 14, 25),
+    CharacterStats("Fox", YELLOW, 4.0, 4.5, -14, -12, 8, 2, 4, 7, 13, 14, 28, 10, 20),
+    CharacterStats("Puff", PURPLE, 2.0, 5.0, -15, -13, 5, 2, 3, 6, 12, 12, 25, 8, 18),
+    CharacterStats("Bowser", (139, 69, 19), 2.0, 2.5, -9, -8, 15, 5, 8, 12, 20, 22, 40, 16, 30)
+]
+
+
+# ==================== FIGHTER CLASS ====================
+class Fighter:
+    def __init__(self, x, y, character_stats, player_id, is_ai=False):
+        self.stats = character_stats
+        self.id = player_id
+        self.is_ai = is_ai
+
+        # Position
+        self.x = x
+        self.y = y
+        self.vx = 0
+        self.vy = 0
+        self.facing = 1
+        self.on_ground = False
+        self.jumps_left = 2
+
+        # Combat
+        self.damage = 0
+        self.stocks = 3
+        self.hitstun = 0
+        self.invincible = 0
+
+        # Input
+        self.input_x = 0
+        self.input_y = 0
+        self.pressing_jump = False
+        self.pressing_attack = [False, False, False, False]
+
+        # Attack
+        self.attack_active = False
+        self.attack_frame = 0
+        self.current_attack = 0
+        self.attack_cooldown = 0
+
+        # Visual
+        self.width = 36
+        self.height = 54
+
+    def update(self, platforms, opponents):
+        # Hitstun
+        if self.hitstun > 0:
+            self.hitstun -= 1
+            self.x += self.vx * 0.5
+            self.y += self.vy * 0.5
+            return
+
+        # Invincibility
+        if self.invincible > 0:
+            self.invincible -= 1
+
+        # Attack cooldown
+        if self.attack_cooldown > 0:
+            self.attack_cooldown -= 1
+
+        # Attack frames
+        if self.attack_active:
+            self.attack_frame += 1
+            if self.attack_frame > 10:
+                self.attack_active = False
+                self.attack_cooldown = 15
+
+        # Movement
+        if self.input_x != 0:
+            speed = self.stats.air_speed if not self.on_ground else self.stats.walk_speed
+            self.vx += self.input_x * speed * 0.3
+            self.facing = self.input_x
+
+        # Friction
+        if self.on_ground:
+            self.vx *= GROUND_FRICTION
+        else:
+            self.vx *= AIR_FRICTION
+
+        # Jump
+        if self.pressing_jump and self.jumps_left > 0:
+            if self.on_ground:
+                self.vy = self.stats.jump_force
+                self.jumps_left -= 1
+                self.on_ground = False
+            elif self.jumps_left > 0:
+                self.vy = self.stats.double_jump_force
+                self.jumps_left -= 1
+
+        # Gravity
+        if not self.on_ground:
+            self.vy += GRAVITY
+
+        # Apply movement
+        self.x += self.vx
+        self.y += self.vy
+
+        # Platform collision
+        self.on_ground = False
+        for platform in platforms:
+            if (self.x + self.width > platform[0] and
+                    self.x < platform[0] + platform[2] and
+                    self.y + self.height > platform[1] and
+                    self.y + self.height < platform[1] + platform[3] + 10 and
+                    self.vy >= 0):
+                self.y = platform[1] - self.height
+                self.vy = 0
+                self.on_ground = True
+                self.jumps_left = 2
+                break
+
+        # Attack hits
+        if self.attack_active and self.attack_frame > 3:
+            self.check_hits(opponents)
+
+        # Blast zones
+        if (self.x + self.width < BLAST_ZONES['left'] or
+                self.x > BLAST_ZONES['right'] or
+                self.y + self.height < BLAST_ZONES['top'] or
+                self.y > BLAST_ZONES['bottom']):
+            self.respawn()
+
+    def attack(self, attack_type):
+        if self.attack_cooldown <= 0 and not self.attack_active:
+            self.current_attack = attack_type
+            self.attack_active = True
+            self.attack_frame = 0
+
+    def get_attack_damage(self):
+        attacks = [self.stats.jab_damage, self.stats.tilt_damage,
+                   self.stats.smash_damage, self.stats.special_damage]
+        return attacks[self.current_attack]
+
+    def get_attack_knockback(self):
+        attacks = [self.stats.jab_knockback, self.stats.tilt_knockback,
+                   self.stats.smash_knockback, self.stats.special_knockback]
+        return attacks[self.current_attack]
+
+    def check_hits(self, opponents):
+        attack_width = 50
+        attack_height = 40
+        attack_x = self.x + (self.width if self.facing > 0 else -attack_width)
+        attack_y = self.y + 10
+
+        for opponent in opponents:
+            if opponent != self and opponent.hitstun <= 0 and opponent.invincible <= 0:
+                if (attack_x < opponent.x + opponent.width and
+                        attack_x + attack_width > opponent.x and
+                        attack_y < opponent.y + opponent.height and
+                        attack_y + attack_height > opponent.y):
+                    # Damage
+                    damage = self.get_attack_damage()
+                    opponent.damage += damage
+
+                    # Knockback
+                    knockback = self.get_attack_knockback() + (opponent.damage * 0.3)
+                    knockback = min(knockback, MAX_KNOCKBACK)
+
+                    direction = 1 if self.x < opponent.x else -1
+
+                    opponent.vx = knockback * direction
+                    opponent.vy = -knockback * 0.5
+                    opponent.hitstun = int(knockback * 2)
+                    opponent.invincible = 20
+
+    def respawn(self):
+        self.x = SCREEN_WIDTH // 2 - self.width // 2
+        self.y = SCREEN_HEIGHT // 2 - self.height
+        self.vx = 0
+        self.vy = 0
+        self.damage = 0
+        self.stocks -= 1
+        self.invincible = 120
+
+    def draw(self, screen):
+        color = self.stats.color
+        if self.invincible > 0 and (self.invincible // 5) % 2 == 0:
+            color = WHITE
+
+        pygame.draw.rect(screen, color, (self.x, self.y, self.width, self.height))
+
+        # Face direction indicator
+        eye_x = self.x + (25 if self.facing > 0 else 10)
+        pygame.draw.circle(screen, BLACK, (int(eye_x), int(self.y + 15)), 3)
+
+        # Damage
+        font = pygame.font.Font(None, 20)
+        text = font.render(f"{int(self.damage)}%", True, WHITE)
+        screen.blit(text, (self.x + 5, self.y - 20))
+
+        # Stocks
+        for i in range(self.stocks):
+            pygame.draw.circle(screen, color,
+                               (int(self.x + 10 + i * 8), int(self.y - 35)), 4)
+
+        # Attack indicator
+        if self.attack_active:
+            attack_x = self.x + (self.width if self.facing > 0 else -20)
+            pygame.draw.rect(screen, RED, (attack_x, self.y + 10, 20, 20), 2)
+
+
+# ==================== AI CONTROLLER ====================
+class AIController:
+    def __init__(self, difficulty=0.5):
+        self.difficulty = difficulty
+        self.attack_cooldown = 0
+
+    def get_inputs(self, ai_fighter, opponent):
+        if not opponent or ai_fighter.hitstun > 0:
+            return [0, 0, False, [False, False, False, False]]
+
+        self.attack_cooldown = max(0, self.attack_cooldown - 1)
+
+        dx = opponent.x - ai_fighter.x
+        dy = opponent.y - ai_fighter.y
+        distance = abs(dx)
+
+        inputs = [0, 0, False, [False, False, False, False]]
+
+        if random.random() < self.difficulty:
+            # Movement
+            if distance > 100:
+                inputs[0] = 1 if dx > 0 else -1
+            elif distance < 50:
+                inputs[0] = -1 if dx > 0 else 1
+
+            # Jump
+            if dy < -30 and ai_fighter.on_ground and random.random() < 0.1:
+                inputs[2] = True
+
+            # Attack
+            if distance < 80 and self.attack_cooldown == 0 and random.random() < self.difficulty * 0.3:
+                attack_type = random.randint(0, 3)
+                inputs[3][attack_type] = True
+                self.attack_cooldown = 30
+
+        return inputs
+
+
+# ==================== MENU CLASSES ====================
+class Button:
+    def __init__(self, x, y, width, height, text, color, hover_color):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.color = color
+        self.hover_color = hover_color
+        self.hovered = False
+
+    def draw(self, screen):
+        color = self.hover_color if self.hovered else self.color
+        pygame.draw.rect(screen, color, self.rect)
+        pygame.draw.rect(screen, WHITE, self.rect, 2)
+
+        font = pygame.font.Font(None, 36)
+        text = font.render(self.text, True, WHITE)
+        text_rect = text.get_rect(center=self.rect.center)
+        screen.blit(text, text_rect)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            self.hovered = self.rect.collidepoint(event.pos)
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if self.hovered:
+                return True
+        return False
+
+
+class MainMenu:
+    def __init__(self, screen):
+        self.screen = screen
+        self.clock = pygame.time.Clock()
+        self.running = True
+        self.selected_mode = None
+
+        # Create buttons
+        button_width = 300
+        button_height = 60
+        center_x = SCREEN_WIDTH // 2 - button_width // 2
+        start_y = 250
+
+        self.buttons = [
+            Button(center_x, start_y, button_width, button_height, "Local VS", DARK_GRAY, GRAY),
+            Button(center_x, start_y + 80, button_width, button_height, "VS AI", DARK_GRAY, GRAY),
+            Button(center_x, start_y + 160, button_width, button_height, "Online Host", DARK_GRAY, GRAY),
+            Button(center_x, start_y + 240, button_width, button_height, "Online Join", DARK_GRAY, GRAY),
+            Button(center_x, start_y + 320, button_width, button_height, "Quit", DARK_GRAY, GRAY)
+        ]
+
+        # AI difficulty
+        self.ai_difficulty = 0.5
+        self.show_difficulty = False
+
+    def run(self):
+        while self.running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return None
+
+                for i, button in enumerate(self.buttons):
+                    if button.handle_event(event):
+                        if i == 0:  # Local VS
+                            return GameMode.LOCAL_VS
+                        elif i == 1:  # VS AI
+                            self.show_difficulty = True
+                        elif i == 2:  # Online Host
+                            return GameMode.ONLINE_HOST
+                        elif i == 3:  # Online Join
+                            return GameMode.ONLINE_JOIN
+                        elif i == 4:  # Quit
+                            return None
+
+                if self.show_difficulty:
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_LEFT:
+                            self.ai_difficulty = max(0.1, self.ai_difficulty - 0.1)
+                        elif event.key == pygame.K_RIGHT:
+                            self.ai_difficulty = min(1.0, self.ai_difficulty + 0.1)
+                        elif event.key == pygame.K_RETURN:
+                            return GameMode.VS_AI
+
+            self.draw()
+            pygame.display.flip()
+            self.clock.tick(FPS)
+
+        return None
+
+    def draw(self):
+        self.screen.fill(DARK_GRAY)
+
+        # Title
+        font = pygame.font.Font(None, 72)
+        title = font.render("SIMPLE FIGHTER", True, YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 120))
+        self.screen.blit(title, title_rect)
+
+        # Draw buttons
+        for button in self.buttons:
+            button.draw(self.screen)
+
+        # AI difficulty slider
+        if self.show_difficulty:
+            # Semi-transparent overlay
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            overlay.set_alpha(128)
+            overlay.fill(BLACK)
+            self.screen.blit(overlay, (0, 0))
+
+            # Difficulty box
+            box_rect = pygame.Rect(SCREEN_WIDTH // 2 - 200, SCREEN_HEIGHT // 2 - 100, 400, 200)
+            pygame.draw.rect(self.screen, DARK_GRAY, box_rect)
+            pygame.draw.rect(self.screen, WHITE, box_rect, 2)
+
+            # Text
+            font = pygame.font.Font(None, 48)
+            text = font.render("AI Difficulty", True, WHITE)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+            self.screen.blit(text, text_rect)
+
+            # Slider
+            slider_rect = pygame.Rect(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2, 300, 20)
+            pygame.draw.rect(self.screen, GRAY, slider_rect)
+            pygame.draw.rect(self.screen, WHITE, slider_rect, 2)
+
+            # Slider handle
+            handle_x = slider_rect.x + (self.ai_difficulty * 300)
+            pygame.draw.circle(self.screen, GREEN, (int(handle_x), slider_rect.centery), 15)
+
+            # Difficulty value
+            value_text = font.render(f"{self.ai_difficulty:.1f}", True, GREEN)
+            value_rect = value_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
+            self.screen.blit(value_text, value_rect)
+
+            # Instructions
+            small_font = pygame.font.Font(None, 24)
+            inst = small_font.render("LEFT/RIGHT to adjust, ENTER to confirm", True, LIGHT_GRAY)
+            inst_rect = inst.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
+            self.screen.blit(inst, inst_rect)
+
+
+class CharacterSelect:
+    def __init__(self, screen):
+        self.screen = screen
+        self.clock = pygame.time.Clock()
+        self.running = True
+
+        self.p1_index = 0
+        self.p2_index = 1
+        self.p1_confirmed = False
+        self.p2_confirmed = False
+
+        self.characters = CHARACTERS
+
+        # Character preview positions
+        self.p1_rect = pygame.Rect(200, 250, 150, 200)
+        self.p2_rect = pygame.Rect(SCREEN_WIDTH - 350, 250, 150, 200)
+
+    def run(self):
+        while self.running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return None
+
+                if event.type == pygame.KEYDOWN:
+                    # Player 1 controls
+                    if not self.p1_confirmed:
+                        if event.key == pygame.K_LEFT:
+                            self.p1_index = (self.p1_index - 1) % len(self.characters)
+                        elif event.key == pygame.K_RIGHT:
+                            self.p1_index = (self.p1_index + 1) % len(self.characters)
+                        elif event.key == pygame.K_RETURN:
+                            self.p1_confirmed = True
+
+                    # Player 2 controls
+                    if not self.p2_confirmed:
+                        if event.key == pygame.K_a:
+                            self.p2_index = (self.p2_index - 1) % len(self.characters)
+                        elif event.key == pygame.K_d:
+                            self.p2_index = (self.p2_index + 1) % len(self.characters)
+                        elif event.key == pygame.K_LSHIFT or event.key == pygame.K_RSHIFT:
+                            self.p2_confirmed = True
+
+            # Check if both confirmed
+            if self.p1_confirmed and self.p2_confirmed:
+                return (self.characters[self.p1_index], self.characters[self.p2_index])
+
+            self.draw()
+            pygame.display.flip()
+            self.clock.tick(FPS)
+
+        return None
+
+    def draw(self):
+        self.screen.fill(DARK_GRAY)
+
+        # Title
+        font = pygame.font.Font(None, 48)
+        title = font.render("SELECT YOUR CHARACTER", True, WHITE)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 80))
+        self.screen.blit(title, title_rect)
+
+        # Player 1 section
+        p1_text = font.render("PLAYER 1", True, RED)
+        p1_text_rect = p1_text.get_rect(center=(275, 180))
+        self.screen.blit(p1_text, p1_text_rect)
+
+        # Player 1 character preview
+        p1_char = self.characters[self.p1_index]
+        pygame.draw.rect(self.screen, p1_char.color, self.p1_rect)
+        pygame.draw.rect(self.screen, WHITE, self.p1_rect, 3)
+
+        # Character name
+        name_font = pygame.font.Font(None, 36)
+        p1_name = name_font.render(p1_char.name, True, WHITE)
+        p1_name_rect = p1_name.get_rect(center=(275, 470))
+        self.screen.blit(p1_name, p1_name_rect)
+
+        if self.p1_confirmed:
+            ready = name_font.render("READY!", True, GREEN)
+            ready_rect = ready.get_rect(center=(275, 520))
+            self.screen.blit(ready, ready_rect)
+
+        # Player 2 section
+        p2_text = font.render("PLAYER 2", True, BLUE)
+        p2_text_rect = p2_text.get_rect(center=(SCREEN_WIDTH - 275, 180))
+        self.screen.blit(p2_text, p2_text_rect)
+
+        # Player 2 character preview
+        p2_char = self.characters[self.p2_index]
+        pygame.draw.rect(self.screen, p2_char.color, self.p2_rect)
+        pygame.draw.rect(self.screen, WHITE, self.p2_rect, 3)
+
+        p2_name = name_font.render(p2_char.name, True, WHITE)
+        p2_name_rect = p2_name.get_rect(center=(SCREEN_WIDTH - 275, 470))
+        self.screen.blit(p2_name, p2_name_rect)
+
+        if self.p2_confirmed:
+            ready = name_font.render("READY!", True, GREEN)
+            ready_rect = ready.get_rect(center=(SCREEN_WIDTH - 275, 520))
+            self.screen.blit(ready, ready_rect)
+
+        # Controls
+        small_font = pygame.font.Font(None, 24)
+        p1_controls = small_font.render("P1: Arrow Keys to select, Enter to confirm", True, LIGHT_GRAY)
+        p2_controls = small_font.render("P2: A/D to select, Shift to confirm", True, LIGHT_GRAY)
+
+        self.screen.blit(p1_controls, (SCREEN_WIDTH // 2 - p1_controls.get_width() // 2, 600))
+        self.screen.blit(p2_controls, (SCREEN_WIDTH // 2 - p2_controls.get_width() // 2, 630))
+
+
+# ==================== GAME CLASS ====================
+class Game:
+    def __init__(self, screen, mode, p1_char=None, p2_char=None, ai_difficulty=0.5):
+        self.screen = screen
+        self.clock = pygame.time.Clock()
+        self.running = True
+        self.mode = mode
+        self.ai_difficulty = ai_difficulty
+
+        # Create platforms
+        self.platforms = [
+            (0, SCREEN_HEIGHT - 80, SCREEN_WIDTH, 20),
+            (SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT - 300, 300, 20),
+            (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT - 500, 200, 20)
+        ]
+
+        # Create fighters
+        if p1_char and p2_char:
+            self.fighters = [
+                Fighter(300, SCREEN_HEIGHT - 150, p1_char, 0),
+                Fighter(SCREEN_WIDTH - 300, SCREEN_HEIGHT - 150, p2_char, 1)
+            ]
+        else:
+            self.fighters = [
+                Fighter(300, SCREEN_HEIGHT - 150, CHARACTERS[0], 0),
+                Fighter(SCREEN_WIDTH - 300, SCREEN_HEIGHT - 150, CHARACTERS[1], 1)
+            ]
+
+        # Set AI for second fighter if needed
+        if mode == GameMode.VS_AI:
+            self.fighters[1].is_ai = True
+            self.ai = AIController(ai_difficulty)
+
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.running = False
+
+    def handle_input(self):
+        keys = pygame.key.get_pressed()
+
+        # Player 1
+        p1 = self.fighters[0]
+
+        # Movement
+        if keys[pygame.K_LEFT]:
+            p1.input_x = -1
+        elif keys[pygame.K_RIGHT]:
+            p1.input_x = 1
+        else:
+            p1.input_x = 0
+
+        p1.pressing_jump = keys[pygame.K_UP]
+
+        # Attacks
+        p1.pressing_attack[0] = keys[pygame.K_j]  # jab
+        p1.pressing_attack[1] = keys[pygame.K_k]  # tilt
+        p1.pressing_attack[2] = keys[pygame.K_l]  # smash
+        p1.pressing_attack[3] = keys[pygame.K_i]  # special
+
+        # Player 2 (if human)
+        if len(self.fighters) > 1 and self.mode == GameMode.LOCAL_VS:
+            p2 = self.fighters[1]
+
+            if keys[pygame.K_a]:
+                p2.input_x = -1
+            elif keys[pygame.K_d]:
+                p2.input_x = 1
+            else:
+                p2.input_x = 0
+
+            p2.pressing_jump = keys[pygame.K_w]
+
+            p2.pressing_attack[0] = keys[pygame.K_u]
+            p2.pressing_attack[1] = keys[pygame.K_i]
+            p2.pressing_attack[2] = keys[pygame.K_o]
+            p2.pressing_attack[3] = keys[pygame.K_p]
+
+    def update(self):
+        # Process AI if needed
+        if self.mode == GameMode.VS_AI and len(self.fighters) > 1:
+            ai_inputs = self.ai.get_inputs(self.fighters[1], self.fighters[0])
+            ai_fighter = self.fighters[1]
+            ai_fighter.input_x = ai_inputs[0]
+            ai_fighter.pressing_jump = ai_inputs[2]
+            ai_fighter.pressing_attack = ai_inputs[3]
+
+        # Process attacks
+        for fighter in self.fighters:
+            for i, pressing in enumerate(fighter.pressing_attack):
+                if pressing:
+                    fighter.attack(i)
+
+        # Update fighters
+        for fighter in self.fighters:
+            fighter.update(self.platforms, self.fighters)
+
+    def draw(self):
+        self.screen.fill(BLACK)
+
+        # Draw platforms
+        for platform in self.platforms:
+            pygame.draw.rect(self.screen, GRAY, platform)
+            pygame.draw.rect(self.screen, LIGHT_GRAY, platform, 2)
+
+        # Draw fighters
+        for fighter in self.fighters:
+            fighter.draw(self.screen)
+
+        # Draw mode
+        font = pygame.font.Font(None, 24)
+        mode_text = f"Mode: {self.mode.value}"
+        if self.mode == GameMode.VS_AI:
+            mode_text += f" (Difficulty: {self.ai_difficulty:.1f})"
+        text = font.render(mode_text, True, WHITE)
+        self.screen.blit(text, (10, 10))
+
+        # Draw game over
+        alive = [f for f in self.fighters if f.stocks > 0]
+        if len(alive) <= 1:
+            if len(alive) == 1:
+                winner_text = f"{alive[0].stats.name} WINS!"
+            else:
+                winner_text = "DRAW!"
+
+            big_font = pygame.font.Font(None, 72)
+            text = big_font.render(winner_text, True, YELLOW)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            self.screen.blit(text, text_rect)
+
+            # Return to menu prompt
+            small_font = pygame.font.Font(None, 36)
+            prompt = small_font.render("Press ESC to return to menu", True, LIGHT_GRAY)
+            prompt_rect = prompt.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
+            self.screen.blit(prompt, prompt_rect)
+
+        pygame.display.flip()
+
+    def run(self):
+        while self.running:
+            self.handle_events()
+            self.handle_input()
+            self.update()
+            self.draw()
+            self.clock.tick(FPS)
+        return
+
+
+# ==================== MAIN FUNCTION ====================
+def main():
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption("Simple Fighter")
+
+    while True:
+        # Main menu
+        menu = MainMenu(screen)
+        mode = menu.run()
+
+        if mode is None:  # Quit
+            break
+
+        # Character select for local modes
+        if mode in [GameMode.LOCAL_VS, GameMode.VS_AI]:
+            char_select = CharacterSelect(screen)
+            characters = char_select.run()
+
+            if characters is None:  # Back to menu
+                continue
+
+            p1_char, p2_char = characters
+
+            # Start game
+            if mode == GameMode.VS_AI:
+                game = Game(screen, mode, p1_char, p2_char, menu.ai_difficulty)
+            else:
+                game = Game(screen, mode, p1_char, p2_char)
+
+        else:  # Online modes (simplified for now)
+            if mode == GameMode.ONLINE_HOST:
+                print("Hosting game...")
+                # For now, just use default characters
+                game = Game(screen, mode, CHARACTERS[0], CHARACTERS[1])
+            elif mode == GameMode.ONLINE_JOIN:
+                print("Joining game...")
+                game = Game(screen, mode, CHARACTERS[0], CHARACTERS[1])
+
+        game.run()
+
+    pygame.quit()
+
+
+if __name__ == "__main__":
+    main()
