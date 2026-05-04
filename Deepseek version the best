@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚔️ Combo Clash: Ultimate Y2K Edition</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background: #0a0a1a;
+      font-family: 'Segoe UI', 'Courier New', monospace;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      user-select: none;
+    }
+    #gameWrapper {
+      position: relative;
+      width: 960px;
+      height: 540px;
+    }
+    canvas {
+      display: block;
+      border-radius: 12px;
+      box-shadow: 0 0 40px rgba(0, 255, 255, 0.3);
+    }
+    
+    /* Top UI Bar */
+    #topBar {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 15;
+    }
+    #topBar > * {
+      pointer-events: all;
+    }
+    .room-badge {
+      background: rgba(0,0,0,0.75);
+      color: #00ffcc;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: bold;
+      border: 1px solid #00ffcc66;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      backdrop-filter: blur(5px);
+    }
+    .copy-btn {
+      background: #00ffcc22;
+      border: 1px solid #00ffcc;
+      color: #00ffcc;
+      padding: 4px 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: bold;
+      transition: 0.2s;
+    }
+    .copy-btn:hover {
+      background: #00ffcc44;
+      box-shadow: 0 0 12px #00ffcc66;
+    }
+    .copy-btn.copied {
+      background: #00ffcc88;
+      color: #000;
+    }
+    
+    /* Notifications */
+    #notificationContainer {
+      position: absolute;
+      top: 50px;
+      right: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 25;
+      pointer-events: all;
+    }
+    .notification {
+      background: rgba(10,10,40,0.95);
+      border: 2px solid #ffaa00;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: bold;
+      animation: slideIn 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+      min-width: 250px;
+    }
+    .notification button {
+      background: #ffaa00;
+      border: none;
+      color: #000;
+      padding: 6px 14px;
+      border-radius: 15px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .notification button.decline {
+      background: #555;
+      color: #fff;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(50px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    
+    /* Kill Feed */
+    #killFeed {
+      position: absolute;
+      right: 10px;
+      top: 50px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+      z-index: 14;
+    }
+    .kill-msg {
+      background: rgba(0,0,0,0.85);
+      color: #ffcc00;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: bold;
+      animation: kfIn 0.3s ease, kfOut 0.5s 2.5s forwards;
+      border-left: 4px solid #ff4444;
+    }
+    @keyframes kfIn { from { opacity:0; transform:translateX(30px); } to { opacity:1; transform:translateX(0); } }
+    @keyframes kfOut { to { opacity:0; transform:translateX(-30px); } }
+    
+    /* Friends List */
+    #friendsPanel {
+      position: absolute;
+      left: 10px;
+      top: 50px;
+      background: rgba(5,5,25,0.95);
+      border: 1px solid #4488ff;
+      border-radius: 12px;
+      padding: 12px;
+      z-index: 20;
+      pointer-events: all;
+      display: none;
+      backdrop-filter: blur(10px);
+      min-width: 200px;
+      color: #fff;
+    }
+    #friendsPanel.open {
+      display: block;
+    }
+    #friendsPanel h4 {
+      color: #88bbff;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .friend-entry {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 8px;
+      border-radius: 6px;
+      margin: 3px 0;
+      font-size: 12px;
+      background: #ffffff08;
+    }
+    .friend-entry .status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status.online { background: #00ff44; box-shadow: 0 0 6px #00ff44; }
+    .status.offline { background: #666; }
+    .btn-invite {
+      background: #4488ff;
+      border: none;
+      color: #fff;
+      padding: 3px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 10px;
+    }
+    
+    /* Menu Overlays */
+    .menu-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5,5,20,0.93);
+      z-index: 30;
+      pointer-events: all;
+    }
+    .menu-overlay.hidden { display: none; }
+    .menu-btn {
+      background: linear-gradient(135deg, #ff4d7a, #cc2255);
+      border: 2px solid #ff88aa;
+      color: white;
+      padding: 14px 40px;
+      margin: 8px;
+      border-radius: 30px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      min-width: 220px;
+    }
+    .menu-btn:hover {
+      transform: scale(1.08);
+      box-shadow: 0 0 25px #ff4d7a;
+    }
+    .menu-btn.secondary {
+      background: linear-gradient(135deg, #4488ff, #2255cc);
+      border-color: #88bbff;
+    }
+    .menu-title {
+      font-size: 3rem;
+      color: #fff;
+      text-shadow: 0 0 30px cyan, 0 0 60px #ff4d7a;
+      margin-bottom: 25px;
+      letter-spacing: 4px;
+    }
+    
+    /* Damage numbers */
+    .damage-text {
+      position: absolute;
+      font-weight: bold;
+      font-size: 22px;
+      color: #ff4444;
+      pointer-events: none;
+      animation: dmgFloat 1s forwards;
+      text-shadow: 0 0 8px black;
+    }
+    @keyframes dmgFloat {
+      0% { opacity:1; transform:translateY(0); }
+      100% { opacity:0; transform:translateY(-60px); }
+    }
+    
+    .sprite-upload { display: inline-block; }
+  </style>
+</head>
+<body>
+<div id="gameWrapper">
+  <canvas id="gameCanvas" width="960" height="540"></canvas>
+  
+  <!-- Top Bar -->
+  <div id="topBar">
+    <div class="room-badge" id="roomBadge" style="display:none;">
+      <span id="roomCodeDisplay">🏠 ----</span>
+      <button class="copy-btn" id="copyRoomBtn" onclick="copyRoomCode()">📋 Copy</button>
+      <button class="copy-btn" id="shareLinkBtn" onclick="shareRoomLink()" style="border-color:#ffaa00;color:#ffaa00;">🔗 Link</button>
+    </div>
+    <div>
+      <button class="copy-btn" id="friendsBtn" onclick="toggleFriends()" style="background:#4488ff44;border-color:#88bbff;color:#88bbff;font-size:12px;padding:6px 14px;">
+        👥 Friends <span id="onlineCount">0</span>
+      </button>
+    </div>
+  </div>
+  
+  <!-- Friends Panel -->
+  <div id="friendsPanel">
+    <h4>👥 Friends List</h4>
+    <div id="friendsListContainer">
+      <div style="color:#888;font-size:11px;">Add friends by ID or room invites</div>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:5px;">
+      <input type="text" id="addFriendInput" placeholder="Friend ID" style="flex:1;background:#222;border:1px solid #555;color:#fff;padding:5px 8px;border-radius:8px;font-size:11px;">
+      <button onclick="addFriend()" style="background:#4488ff;border:none;color:#fff;padding:5px 12px;border-radius:8px;cursor:pointer;font-size:11px;">Add</button>
+    </div>
+  </div>
+  
+  <!-- Kill Feed -->
+  <div id="killFeed"></div>
+  
+  <!-- Notifications -->
+  <div id="notificationContainer"></div>
+  
+  <!-- Main Menu -->
+  <div class="menu-overlay" id="mainMenu">
+    <div class="menu-title">⚔️ COMBO CLASH</div>
+    <button class="menu-btn" onclick="startGame('local')">🎮 LOCAL VS AI</button>
+    <button class="menu-btn secondary" onclick="startGame('host')">🌟 HOST PARTY</button>
+    <button class="menu-btn secondary" onclick="startGame('join')">🔗 JOIN PARTY</button>
+    <button class="menu-btn" onclick="showSettings()" style="background:#333;border-color:#666;">⚙️ SETTINGS</button>
+  </div>
+  
+  <!-- Settings Menu -->
+  <div class="menu-overlay hidden" id="settingsMenu">
+    <div class="menu-title" style="font-size:2rem;">⚙️ SETTINGS</div>
+    <div style="color:white;margin:10px;">
+      <label>Stocks: <input type="number" id="stockCount" value="3" min="1" max="10" style="width:60px;"></label>
+    </div>
+    <div style="color:white;margin:10px;">
+      <label>AI Difficulty: <input type="range" id="aiDiff" min="1" max="5" value="3"></label>
+    </div>
+    <div style="color:white;margin:10px;">
+      <label>Player Name: <input type="text" id="playerNameInput" value="You" style="width:150px;"></label>
+    </div>
+    <div style="color:white;margin:10px;">
+      <label>Player Sprite (PNG): <input type="file" id="p1SpriteInput" accept="image/png" class="sprite-upload"></label>
+    </div>
+    <button class="menu-btn" onclick="backToMenu()">🔙 BACK</button>
+  </div>
+  
+  <!-- Damage numbers layer -->
+  <div id="damageLayer" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></div>
+</div>
+
+<script>
+// ============ CORE ENGINE ============
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+let gameState = 'menu';
+let stocks = { p1: 3, p2: 3 };
+let killFeed = [];
+let damageNumbers = [];
+let screenShake = 0;
+let particles = [];
+let player1, player2;
+let isHost = false, isInParty = false;
+let roomId = null;
+let partyChannel = null;
+let myPlayerId = Math.random().toString(36).substr(2,9);
+let myPlayerName = 'You';
+let remotePlayers = new Map();
+let aiEnabled = true;
+let p1Sprite = null;
+let friendsList = [];
+let onlineFriends = new Set();
+let notificationQueue = [];
+
+// ============ FRIENDS & NOTIFICATIONS ============
+function addNotification(message, actions = [], duration = 8000) {
+  const container = document.getElementById('notificationContainer');
+  const notif = document.createElement('div');
+  notif.className = 'notification';
+  notif.innerHTML = `<span>${message}</span>`;
+  
+  const btnContainer = document.createElement('div');
+  btnContainer.style.display = 'flex';
+  btnContainer.style.gap = '5px';
+  
+  actions.forEach(action => {
+    const btn = document.createElement('button');
+    btn.textContent = action.text;
+    btn.className = action.decline ? 'decline' : '';
+    btn.onclick = () => {
+      action.callback();
+      notif.remove();
+    };
+    btnContainer.appendChild(btn);
+  });
+  
+  notif.appendChild(btnContainer);
+  container.appendChild(notif);
+  
+  if (duration > 0) {
+    setTimeout(() => {
+      if (notif.parentNode) notif.remove();
+    }, duration);
+  }
+  
+  return notif;
+}
+
+function toggleFriends() {
+  const panel = document.getElementById('friendsPanel');
+  panel.classList.toggle('open');
+  updateFriendsList();
+}
+
+function updateFriendsList() {
+  const container = document.getElementById('friendsListContainer');
+  const onlineCount = document.getElementById('onlineCount');
+  
+  if (friendsList.length === 0) {
+    container.innerHTML = '<div style="color:#888;font-size:11px;">No friends added yet</div>';
+    onlineCount.textContent = '0';
+    return;
+  }
+  
+  let online = 0;
+  container.innerHTML = friendsList.map(f => {
+    const isOnline = onlineFriends.has(f.id);
+    if (isOnline) online++;
+    return `
+      <div class="friend-entry">
+        <span class="status ${isOnline ? 'online' : 'offline'}"></span>
+        <span style="flex:1;margin-left:8px;">${f.name}</span>
+        ${isOnline ? `<button class="btn-invite" onclick="inviteFriend('${f.id}')">Invite</button>` : '<span style="color:#666;font-size:10px;">offline</span>'}
+      </div>
+    `;
+  }).join('');
+  
+  onlineCount.textContent = `(${online})`;
+}
+
+function addFriend() {
+  const input = document.getElementById('addFriendInput');
+  const friendId = input.value.trim();
+  if (!friendId || friendId === myPlayerId) return;
+  
+  if (friendsList.find(f => f.id === friendId)) {
+    addNotification('⚠️ Friend already added!', [], 3000);
+    return;
+  }
+  
+  friendsList.push({ id: friendId, name: 'Friend_' + friendId.substring(0,4) });
+  input.value = '';
+  updateFriendsList();
+  addNotification('✅ Friend added!', [], 3000);
+  
+  // Broadcast presence
+  if (partyChannel) {
+    partyChannel.postMessage({ type: 'friendAdd', room: roomId, sender: myPlayerId, friendId });
+  }
+}
+
+function inviteFriend(friendId) {
+  if (!isInParty || !roomId) {
+    addNotification('⚠️ You must be in a party to invite!', [], 3000);
+    return;
+  }
+  
+  // Send invite via BroadcastChannel
+  if (partyChannel) {
+    partyChannel.postMessage({
+      type: 'roomInvite',
+      room: roomId,
+      sender: myPlayerId,
+      senderName: myPlayerName,
+      targetFriend: friendId,
+      inviteRoom: roomId
+    });
+    addNotification(`📨 Invite sent to friend!`, [], 3000);
+  }
+}
+
+function copyRoomCode() {
+  if (!roomId) return;
+  navigator.clipboard.writeText(roomId).then(() => {
+    const btn = document.getElementById('copyRoomBtn');
+    btn.textContent = '✅ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '📋 Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    // Fallback
+    const input = document.createElement('input');
+    input.value = roomId;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+    const btn = document.getElementById('copyRoomBtn');
+    btn.textContent = '✅ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '📋 Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+function shareRoomLink() {
+  if (!roomId) return;
+  const link = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+  navigator.clipboard.writeText(link).then(() => {
+    const btn = document.getElementById('shareLinkBtn');
+    btn.textContent = '✅ Link Copied!';
+    setTimeout(() => { btn.textContent = '🔗 Link'; }, 2000);
+    addNotification('🔗 Room link copied! Share with friends.', [], 3000);
+  }).catch(() => {
+    addNotification('📋 Room code: ' + roomId, [], 5000);
+  });
+}
+
+// Check URL for room join
+function checkURLForRoom() {
+  const params = new URLSearchParams(window.location.search);
+  const roomFromURL = params.get('room');
+  if (roomFromURL) {
+    setTimeout(() => {
+      joinRoom(roomFromURL);
+    }, 500);
+  }
+}
+
+// ============ KNOCKBACK SYSTEM ============
+class Fighter {
+  constructor(x, y, name, color, isAI = false, id = null) {
+    this.x = x; this.y = y;
+    this.width = 40; this.height = 70;
+    this.name = name;
+    this.color = color;
+    this.isAI = isAI;
+    this.id = id || Math.random().toString(36);
+    this.maxHealth = 100;
+    this.health = 100;
+    this.damage = 0;
+    this.speed = 5;
+    this.weight = 1.0;
+    this.attackTimer = 0;
+    this.combo = 0;
+    this.comboTimer = 0;
+    this.stunTimer = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.grounded = true;
+    this.facingRight = true;
+    this.invincible = 0;
+    this.abilityCooldown = 0;
+    this.abilityMaxCooldown = 180;
+    this.abilityName = "Power Strike";
+    this.flashTimer = 0;
+    this.sprite = null;
+  }
+  
+  applyKnockback(fromX, power) {
+    const direction = this.x + this.width/2 > fromX ? 1 : -1;
+    const knockbackForce = (power + this.damage * 0.015) * (1 / this.weight);
+    this.vx = direction * knockbackForce * 3;
+    this.vy = -knockbackForce * 2;
+    this.grounded = false;
+    this.stunTimer = Math.floor(knockbackForce * 3);
+  }
+  
+  takeDamage(attacker, baseDamage, knockbackPower = 1.0) {
+    if (this.invincible > 0) return;
+    
+    const actualDamage = baseDamage * (1 + attacker.damage * 0.01);
+    this.damage += actualDamage;
+    this.health = Math.max(0, this.health - actualDamage * 0.3);
+    this.applyKnockback(attacker.x + attacker.width/2, knockbackPower * (1 + this.damage * 0.02));
+    this.flashTimer = 8;
+    screenShake = Math.min(15, 3 + actualDamage * 0.5);
+    
+    for(let i=0; i<actualDamage*2; i++) {
+      particles.push(new Particle(
+        this.x + this.width/2, this.y + this.height/2,
+        (Math.random()-0.5)*6, (Math.random()-0.5)*6,
+        '#ffcc00', 20 + Math.random()*15
+      ));
+    }
+    
+    spawnDamageNumber(this.x + this.width/2, this.y, Math.floor(actualDamage));
+    attacker.combo++;
+    attacker.comboTimer = 90;
+    
+    if (this.y > H + 100 || this.x < -200 || this.x > W + 200) {
+      this.onKO(attacker);
+    }
+    
+    this.invincible = 15;
+  }
+  
+  onKO(killer) {
+    this.damage = 0;
+    this.health = this.maxHealth;
+    this.vx = 0;
+    this.vy = 0;
+    
+    if (this === player1) {
+      stocks.p1--;
+      if (stocks.p1 <= 0) endGame('p2');
+      else respawn(this, 100);
+    } else if (this === player2) {
+      stocks.p2--;
+      if (stocks.p2 <= 0) endGame('p1');
+      else respawn(this, W - 140);
+    }
+    
+    addKillFeed(killer.name, this.name);
+    
+    for(let i=0; i<40; i++) {
+      particles.push(new Particle(
+        this.x + this.width/2, this.y + this.height/2,
+        (Math.random()-0.5)*12, (Math.random()-0.5)*12,
+        '#ff4444', 30 + Math.random()*30
+      ));
+    }
+    screenShake = 20;
+  }
+  
+  attack(target, type = 'punch') {
+    if (this.attackTimer > 0 || this.stunTimer > 0) return;
+    if (!target || Math.abs(this.x - target.x) > 70) return;
+    
+    const attacks = {
+      punch: { damage: 8, knockback: 1.0, cooldown: 15 },
+      kick: { damage: 12, knockback: 1.5, cooldown: 20 },
+      smash: { damage: 18, knockback: 2.5, cooldown: 35 }
+    };
+    
+    const atk = attacks[type] || attacks.punch;
+    target.takeDamage(this, atk.damage, atk.knockback);
+    this.attackTimer = atk.cooldown;
+    
+    if (isInParty && partyChannel && !this.isAI) {
+      broadcastAttack(target.id, type);
+    }
+  }
+  
+  useAbility(target) {
+    if (this.abilityCooldown > 0 || this.stunTimer > 0 || !target) return;
+    target.takeDamage(this, 25, 3.0);
+    this.abilityCooldown = this.abilityMaxCooldown;
+    screenShake = 12;
+    
+    for(let i=0; i<20; i++) {
+      particles.push(new Particle(
+        target.x + target.width/2, target.y + target.height/2,
+        (Math.random()-0.5)*10, (Math.random()-0.5)*10,
+        this.color, 25
+      ));
+    }
+    
+    if (isInParty && partyChannel && !this.isAI) {
+      broadcastAbility(target.id);
+    }
+  }
+  
+  update() {
+    if (this.attackTimer > 0) this.attackTimer--;
+    if (this.stunTimer > 0) this.stunTimer--;
+    if (this.invincible > 0) this.invincible--;
+    if (this.abilityCooldown > 0) this.abilityCooldown--;
+    if (this.flashTimer > 0) this.flashTimer--;
+    if (this.comboTimer > 0) { this.comboTimer--; if (this.comboTimer <= 0) this.combo = 0; }
+    
+    this.x += this.vx;
+    this.y += this.vy;
+    
+    if (!this.grounded) this.vy += 0.65;
+    
+    if (this.y >= H - this.height - 10) {
+      this.y = H - this.height - 10;
+      this.vy = 0;
+      this.vx *= 0.85;
+      this.grounded = true;
+    }
+    
+    if (this.x < 0) { this.x = 0; this.vx *= -0.5; }
+    if (this.x > W - this.width) { this.x = W - this.width; this.vx *= -0.5; }
+    if (this.y < 0) { this.y = 0; this.vy = 0; }
+    if (!this.grounded) this.vx *= 0.995;
+    if (this.stunTimer > 20) this.stunTimer = 20;
+  }
+  
+  draw(ctx) {
+    ctx.save();
+    if (this.flashTimer > 0 && this.flashTimer % 2 === 0) ctx.globalAlpha = 0.5;
+    if (this.invincible > 0 && this.invincible % 4 < 2) ctx.globalAlpha = 0.4;
+    
+    // Stock icons above head
+    const stocksCount = this === player1 ? stocks.p1 : stocks.p2;
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px sans-serif';
+    let stockStr = '';
+    for(let i=0; i<Math.min(stocksCount, 5); i++) stockStr += '❤️';
+    if (stocksCount > 5) stockStr += ` +${stocksCount-5}`;
+    ctx.fillText(stockStr, this.x - 5, this.y - 28);
+    
+    // Body
+    if (this.sprite) {
+      ctx.drawImage(this.sprite, this.x, this.y, this.width, this.height);
+    } else {
+      ctx.fillStyle = this.color;
+      ctx.shadowColor = this.color;
+      ctx.shadowBlur = 10;
+      ctx.fillRect(this.x, this.y, this.width, this.height);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(this.x + 8, this.y + 12, 8, 8);
+      ctx.fillRect(this.x + 24, this.y + 12, 8, 8);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(this.x + (this.facingRight ? 12 : 10), this.y + 14, 4, 4);
+      ctx.fillRect(this.x + (this.facingRight ? 28 : 26), this.y + 14, 4, 4);
+    }
+    ctx.shadowBlur = 0;
+    
+    // Damage %
+    ctx.fillStyle = '#ff0';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText(Math.floor(this.damage) + '%', this.x + 5, this.y - 45);
+    
+    // Name
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px monospace';
+    ctx.fillText(this.name, this.x, this.y - 50);
+    
+    if (this.abilityCooldown > 0) {
+      const pct = 1 - (this.abilityCooldown / this.abilityMaxCooldown);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(this.x, this.y - 3, this.width, 4);
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillRect(this.x, this.y - 3, this.width * pct, 4);
+    }
+    ctx.restore();
+  }
+}
+
+class Particle {
+  constructor(x, y, vx, vy, color, life) {
+    this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.color = color; this.life = life;
+  }
+  update() { this.x += this.vx; this.y += this.vy; this.vx *= 0.98; this.vy *= 0.98; this.life--; }
+  draw(ctx) {
+    ctx.fillStyle = this.color;
+    ctx.globalAlpha = this.life / 30;
+    ctx.fillRect(this.x, this.y, 2 + this.life/10, 2 + this.life/10);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function respawn(fighter, x) {
+  fighter.x = x;
+  fighter.y = H - fighter.height - 10;
+  fighter.vx = 0;
+  fighter.vy = 0;
+  fighter.damage = 0;
+  fighter.health = fighter.maxHealth;
+  fighter.invincible = 90;
+  fighter.grounded = true;
+}
+
+function spawnDamageNumber(x, y, value) {
+  const el = document.createElement('div');
+  el.className = 'damage-text';
+  el.textContent = value;
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  document.getElementById('damageLayer').appendChild(el);
+  setTimeout(() => el.remove(), 1000);
+}
+
+function addKillFeed(killer, victim) {
+  const feed = document.getElementById('killFeed');
+  const msg = document.createElement('div');
+  msg.className = 'kill-msg';
+  msg.textContent = `${killer} 💀 ${victim}`;
+  feed.appendChild(msg);
+  setTimeout(() => msg.remove(), 3000);
+  if (feed.children.length > 5) feed.firstChild.remove();
+}
+
+function endGame(winner) {
+  gameState = 'gameover';
+  const winnerName = winner === 'p1' ? player1.name : player2.name;
+  addNotification(`🏆 ${winnerName} WINS THE GAME!`, [], 5000);
+  setTimeout(() => {
+    resetGame();
+    backToMenu();
+  }, 3000);
+}
+
+function resetGame() {
+  stocks.p1 = parseInt(document.getElementById('stockCount')?.value || 3);
+  stocks.p2 = stocks.p1;
+  const name = document.getElementById('playerNameInput')?.value || 'You';
+  myPlayerName = name;
+  player1 = new Fighter(100, H-80, name, '#44aaff', false, myPlayerId);
+  player2 = new Fighter(W-140, H-80, 'CPU Fighter', '#ff6644', true);
+  player1.sprite = p1Sprite;
+  particles = [];
+  document.getElementById('killFeed').innerHTML = '';
+}
+
+function updateAI(ai, player, difficulty) {
+  if (ai.stunTimer > 0) return;
+  const diff = difficulty || 3;
+  const idealDistance = 55 + Math.random() * 45;
+  const dx = player.x + player.width/2 - (ai.x + ai.width/2);
+  const dist = Math.abs(dx);
+  
+  if (dist > idealDistance + 20) {
+    ai.x += Math.sign(dx) * ai.speed * (0.6 + diff * 0.1);
+    ai.facingRight = dx > 0;
+  } else if (dist < idealDistance - 10) {
+    ai.x -= Math.sign(dx) * ai.speed * (0.5 + diff * 0.1);
+  }
+  
+  if (Math.random() < 0.02) ai.x += (Math.random() - 0.5) * 30;
+  if (ai.grounded && Math.random() < 0.01 * diff) { ai.vy = -8 - diff; ai.grounded = false; }
+  
+  if (dist < 65 && ai.attackTimer <= 0 && ai.stunTimer <= 0) {
+    const rand = Math.random();
+    if (rand < 0.04 * diff) ai.attack(player, 'punch');
+    else if (rand < 0.06 * diff) ai.attack(player, 'kick');
+    else if (rand < 0.08 * diff && player.damage > 40) ai.attack(player, 'smash');
+  }
+  
+  if (dist < 80 && ai.abilityCooldown <= 0 && player.damage > 60 && Math.random() < 0.02 * diff) {
+    ai.useAbility(player);
+  }
+}
+
+// ============ NETWORKING ============
+function broadcastAttack(targetId, attackType) {
+  partyChannel.postMessage({
+    type: 'attack', room: roomId, sender: myPlayerId,
+    targetId, attackType, x: player1.x + player1.width/2, damage: player1.damage
+  });
+}
+
+function broadcastAbility(targetId) {
+  partyChannel.postMessage({
+    type: 'ability', room: roomId, sender: myPlayerId, targetId,
+    x: player1.x + player1.width/2, damage: player1.damage
+  });
+}
+
+function broadcastState() {
+  if (!partyChannel || !roomId) return;
+  partyChannel.postMessage({
+    type: 'state', room: roomId, sender: myPlayerId, senderName: myPlayerName,
+    x: player1.x, y: player1.y, damage: player1.damage,
+    health: player1.health, vx: player1.vx, vy: player1.vy,
+    facingRight: player1.facingRight, stocks: stocks.p1
+  });
+}
+
+function handleNetworkMessage(event) {
+  const data = event.data;
+  if (!data || data.room !== roomId) return;
+  
+  // Handle room invites (even if sender is different)
+  if (data.type === 'roomInvite' && data.targetFriend === myPlayerId) {
+    addNotification(
+      `📨 ${data.senderName || 'Someone'} invited you to room: ${data.inviteRoom}`,
+      [
+        { text: '✅ Join', callback: () => joinRoom(data.inviteRoom) },
+        { text: '❌ Decline', callback: () => {}, decline: true }
+      ],
+      15000
+    );
+    return;
+  }
+  
+  // Broadcast presence for friends
+  if (data.type === 'presence' || data.type === 'state') {
+    if (friendsList.find(f => f.id === data.sender)) {
+      onlineFriends.add(data.sender);
+    }
+  }
+  
+  if (data.sender === myPlayerId) return;
+  
+  if (data.type === 'state') {
+    let remote = remotePlayers.get(data.sender);
+    if (!remote) {
+      remote = { id: data.sender };
+      remotePlayers.set(data.sender, remote);
+      if (player2.isAI) {
+        player2.isAI = false;
+        player2.id = data.sender;
+        player2.name = data.senderName || 'Opponent';
+        player2.color = '#ff6644';
+        aiEnabled = false;
+        addNotification(`👤 ${player2.name} joined the party!`, [], 3000);
+      }
+    }
+    player2.x += (data.x - player2.x) * 0.4;
+    player2.y += (data.y - player2.y) * 0.4;
+    player2.damage = data.damage;
+    player2.health = data.health;
+    stocks.p2 = data.stocks || stocks.p2;
+  }
+  
+  if (data.type === 'attack' && data.targetId === myPlayerId) {
+    const dmg = data.attackType === 'smash' ? 18 : data.attackType === 'kick' ? 12 : 8;
+    player1.takeDamage({x: data.x, damage: data.damage || 0}, dmg, data.attackType === 'smash' ? 2.5 : 1.0);
+  }
+  
+  if (data.type === 'ability' && data.targetId === myPlayerId) {
+    player1.takeDamage({x: data.x, damage: data.damage || 0}, 25, 3.0);
+  }
+}
+
+function joinRoom(code) {
+  if (partyChannel) partyChannel.close();
+  roomId = code;
+  partyChannel = new BroadcastChannel('combo-clash-v3');
+  partyChannel.onmessage = handleNetworkMessage;
+  isHost = false;
+  isInParty = true;
+  aiEnabled = false;
+  
+  document.getElementById('roomBadge').style.display = 'flex';
+  document.getElementById('roomCodeDisplay').textContent = '🏠 ' + roomId;
+  
+  player2.isAI = false;
+  player2.name = 'Waiting...';
+  gameState = 'playing';
+  
+  // Broadcast presence
+  partyChannel.postMessage({ type: 'presence', room: roomId, sender: myPlayerId, senderName: myPlayerName });
+  addNotification('🔗 Joined room: ' + roomId, [], 3000);
+}
+
+// ============ CONTROLS ============
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  e.preventDefault();
+});
+document.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
+  e.preventDefault();
+});
+
+function handleInput() {
+  if (gameState !== 'playing') return;
+  if (player1.stunTimer > 0) return;
+  
+  if (keys['a'] || keys['arrowleft']) { player1.x -= player1.speed; player1.facingRight = false; }
+  if (keys['d'] || keys['arrowright']) { player1.x += player1.speed; player1.facingRight = true; }
+  if ((keys['w'] || keys['arrowup']) && player1.grounded) { player1.vy = -10; player1.grounded = false; }
+  if (keys['j'] || keys['z']) player1.attack(player2, 'punch');
+  if (keys['k'] || keys['x']) player1.attack(player2, 'kick');
+  if (keys['l'] || keys['c']) player1.attack(player2, 'smash');
+  if (keys['u'] || keys['v']) player1.useAbility(player2);
+}
+
+// ============ GAME LOOP ============
+function update() {
+  if (gameState !== 'playing') return;
+  
+  handleInput();
+  player1.update();
+  
+  if (aiEnabled && player2.isAI) {
+    updateAI(player2, player1, parseInt(document.getElementById('aiDiff')?.value || 3));
+  }
+  player2.update();
+  
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => p.update());
+  
+  if (screenShake > 0) screenShake *= 0.85;
+  
+  // Periodic presence broadcast
+  if (isInParty && partyChannel && gameState === 'playing') {
+    broadcastState();
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  
+  ctx.save();
+  if (screenShake > 0.5) {
+    ctx.translate(
+      (Math.random() - 0.5) * screenShake * 2,
+      (Math.random() - 0.5) * screenShake * 2
+    );
+  }
+  
+  const gradient = ctx.createLinearGradient(0, 0, 0, H);
+  gradient.addColorStop(0, '#0a0a2e');
+  gradient.addColorStop(1, '#1a1a3e');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, W, H);
+  
+  ctx.fillStyle = '#2a2a4a';
+  ctx.fillRect(0, H-12, W, 12);
+  ctx.fillStyle = '#4a4a6a';
+  ctx.fillRect(0, H-10, W, 3);
+  
+  ctx.strokeStyle = '#ffffff08';
+  for(let i=0; i<W; i+=48) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, H);
+    ctx.stroke();
+  }
+  
+  if (player1) player1.draw(ctx);
+  if (player2) player2.draw(ctx);
+  particles.forEach(p => p.draw(ctx));
+  
+  ctx.restore();
+}
+
+function gameLoop() {
+  update();
+  draw();
+  
+  // Update friends online status periodically
+  if (Math.random() < 0.02 && document.getElementById('friendsPanel').classList.contains('open')) {
+    updateFriendsList();
+  }
+  
+  requestAnimationFrame(gameLoop);
+}
+
+// ============ MENU FUNCTIONS ============
+function startGame(mode) {
+  document.getElementById('mainMenu').classList.add('hidden');
+  document.getElementById('settingsMenu').classList.add('hidden');
+  
+  stocks.p1 = parseInt(document.getElementById('stockCount')?.value || 3);
+  stocks.p2 = stocks.p1;
+  const name = document.getElementById('playerNameInput')?.value || 'You';
+  myPlayerName = name;
+  
+  player1 = new Fighter(100, H-80, name, '#44aaff', false, myPlayerId);
+  player2 = new Fighter(W-140, H-80, 'CPU Fighter', '#ff6644', true);
+  player1.sprite = p1Sprite;
+  
+  if (mode === 'local') {
+    aiEnabled = true;
+    player2.isAI = true;
+    isInParty = false;
+    document.getElementById('roomBadge').style.display = 'none';
+    gameState = 'playing';
+  } else if (mode === 'host') {
+    roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    partyChannel = new BroadcastChannel('combo-clash-v3');
+    partyChannel.onmessage = handleNetworkMessage;
+    isHost = true;
+    isInParty = true;
+    aiEnabled = false;
+    player2.isAI = false;
+    player2.name = 'Waiting...';
+    document.getElementById('roomBadge').style.display = 'flex';
+    document.getElementById('roomCodeDisplay').textContent = '🌟 ' + roomId;
+    gameState = 'playing';
+    addNotification('🌟 Room created! Share the code: ' + roomId, [], 5000);
+  } else if (mode === 'join') {
+    const code = prompt('Enter room code:')?.trim().toUpperCase();
+    if (code) {
+      joinRoom(code);
+    } else {
+      backToMenu();
+    }
+  }
+}
+
+function showSettings() {
+  document.getElementById('mainMenu').classList.add('hidden');
+  document.getElementById('settingsMenu').classList.remove('hidden');
+}
+
+function backToMenu() {
+  gameState = 'menu';
+  document.getElementById('mainMenu').classList.remove('hidden');
+  document.getElementById('settingsMenu').classList.add('hidden');
+  document.getElementById('roomBadge').style.display = 'none';
+  if (partyChannel) partyChannel.close();
+  partyChannel = null;
+  isInParty = false;
+  roomId = null;
+  aiEnabled = true;
+  remotePlayers.clear();
+  particles = [];
+  document.getElementById('killFeed').innerHTML = '';
+}
+
+document.getElementById('p1SpriteInput')?.addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const img = new Image();
+      img.onload = function() {
+        p1Sprite = img;
+        if (player1) player1.sprite = img;
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+// Initialize
+checkURLForRoom();
+gameLoop();
+</script>
+</body>
+</html>
