@@ -1,0 +1,3 @@
+commands /help, /givedev, /revokedev, /heal, /kill, /timestop, /setdamage, /setstocks, /spawnai, /kick, /broadcast, /listdevs, /listplayers, /whoami, /clearchat
+consel hotkey `
+dio code: zawardo
